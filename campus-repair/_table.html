@@ -1,0 +1,11 @@
+{% if repairs %}<ul class="repair-cards" aria-label="รายการแจ้งซ่อม">
+{% for r in repairs %}
+<li class="repair-card">
+  <div class="repair-card-top"><span class="repair-number">#{{ '%04d'|format(r.id) }}</span><span class="status status-{{ r.status }}">{{ statuses[r.status] }}</span></div>
+  <h2 class="repair-card-title">{{ r.equipment }}</h2>
+  <dl class="repair-card-meta"><div><dt>สถานที่</dt><dd>{{ r.room }}</dd></div>
+  {% if g.user.role == 'admin' %}<div><dt>ผู้แจ้ง</dt><dd>{{ r.owner }}</dd></div>{% endif %}
+  <div><dt>วันที่แจ้ง</dt><dd><time>{{ r.created_at }}</time></dd></div></dl>
+  <a class="btn btn-outline-primary repair-card-action" href="{{ url_for('repair_detail', repair_id=r.id) }}" aria-label="เปิดรายละเอียดรายการ {{ r.id }} {{ r.equipment }}">ดูรายละเอียดการซ่อม <span aria-hidden="true">→</span></a>
+</li>
+{% endfor %}</ul><div class="table-responsive repair-desktop"><table class="table align-middle mb-0"><thead><tr><th scope="col">รายการ</th><th scope="col">สถานที่{% if g.user.role == 'admin' %} / ผู้แจ้ง{% endif %}</th><th scope="col">สถานะ</th><th scope="col">วันที่แจ้ง</th><th scope="col">รายละเอียด</th></tr></thead><tbody>{% for r in repairs %}<tr><td><small class="text-secondary">#{{ '%04d'|format(r.id) }}</small><br><strong>{{ r.equipment }}</strong></td><td>{{ r.room }}{% if g.user.role == 'admin' %}<br><small class="text-secondary">{{ r.owner }}</small>{% endif %}</td><td><span class="status status-{{ r.status }}">{{ statuses[r.status] }}</span></td><td class="date-cell">{{ r.created_at }}</td><td><a class="btn btn-outline-primary btn-sm" href="{{ url_for('repair_detail', repair_id=r.id) }}" aria-label="ดูรายการ {{ r.id }}">ดูรายการ →</a></td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state"><span class="empty-symbol">◇</span><h2>ยังไม่มีรายการที่จะแสดง</h2><p>เมื่อมีรายการแจ้งซ่อม ข้อมูลจะปรากฏที่นี่</p>{% if g.user.role == 'user' %}<a href="{{ url_for('new_repair') }}" class="btn btn-primary">แจ้งซ่อมรายการแรก</a>{% endif %}</div>{% endif %}
