@@ -1,3 +1,4 @@
+# ตัวเชื่อมฐานข้อมูล: ทำให้ใช้ SQLite และ PostgreSQL ด้วยคำสั่งชุดเดียวกัน
 """ชั้นเชื่อมต่อเล็ก ๆ: SQL เดิมใช้ SQLite ในเครื่อง หรือ PostgreSQL เมื่อมี DATABASE_URL.
 
 ใช้ placeholders เสมอ การแปลง SQL ด้านล่างใช้เฉพาะ SQL ที่เขียนในโปรเจกต์
@@ -45,10 +46,12 @@ class PostgresDB:
         self.transactions = []
 
     def execute(self, sql, params=()):
+        # เปลี่ยนรูปแบบเวลาและตัวแทนค่าให้ PostgreSQL ใช้ได้
         sql = sql.replace("datetime('now','+7 hours')", THAI_NOW).replace('?', '%s')
         is_insert = sql.lstrip().upper().startswith('INSERT INTO ')
         if is_insert:
             sql = sql.rstrip().rstrip(';') + ' RETURNING id'
+        # ส่ง SQL กับค่าที่กรอกแยกกัน ไม่ต่อค่าผู้ใช้ลง SQL
         cursor = self.connection.execute(sql, params)
         inserted_id = cursor.fetchone()['id'] if is_insert else None
         return Cursor(cursor, inserted_id)
@@ -75,6 +78,7 @@ class PostgresDB:
         return self.transactions.pop().__exit__(*args)
 
 
+# เลือก PostgreSQL เมื่อมี URL ไม่เช่นนั้นใช้ SQLite
 def connect_database(config):
     if config.get('DATABASE_URL'):
         return PostgresDB(config['DATABASE_URL'], config.get('DATABASE_SCHEMA'))

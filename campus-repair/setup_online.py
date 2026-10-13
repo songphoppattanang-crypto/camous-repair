@@ -1,3 +1,4 @@
+# ตัวช่วยสร้างตารางและบัญชีผู้ดูแลบนฐานข้อมูลออนไลน์
 """สร้างตารางและ admin บน PostgreSQL จากเครื่องของผู้ใช้ ไม่บันทึก connection string."""
 import getpass
 import os
@@ -7,6 +8,7 @@ import sys
 from pathlib import Path
 
 
+# เตรียมฐานข้อมูลออนไลน์และสร้างผู้ดูแลตามลำดับ
 def main():
     print('เตรียมฐานข้อมูลออนไลน์: ใช้ฐานข้อมูลใหม่สำหรับโปรเจกต์นี้')
     url = getpass.getpass('วาง PostgreSQL connection string (ซ่อนข้อความ): ').strip()

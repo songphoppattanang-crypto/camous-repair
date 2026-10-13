@@ -1,11 +1,6 @@
+-- โครงตารางสำหรับ SQLite ในเครื่อง สร้างเฉพาะตารางที่ยังไม่มี
 PRAGMA foreign_keys = ON;
-CREATE TABLE IF NOT EXISTS google_identities (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
- google_sub TEXT NOT NULL UNIQUE,
- email TEXT NOT NULL,
- created_at TEXT NOT NULL DEFAULT (datetime('now','+7 hours'))
-);
+-- บัญชีผู้ใช้และสิทธิ์ เก็บรหัสผ่านเป็นแฮช
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  username TEXT NOT NULL UNIQUE,
@@ -14,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
  role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
  created_at TEXT NOT NULL DEFAULT (datetime('now','+7 hours'))
 );
+-- รายการแจ้งซ่อมและสถานะล่าสุด
 CREATE TABLE IF NOT EXISTS repairs (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  user_id INTEGER NOT NULL REFERENCES users(id),
@@ -25,6 +21,7 @@ CREATE TABLE IF NOT EXISTS repairs (
  created_at TEXT NOT NULL DEFAULT (datetime('now','+7 hours')),
  updated_at TEXT NOT NULL DEFAULT (datetime('now','+7 hours'))
 );
+-- ประวัติการเปลี่ยนสถานะ พร้อมผู้ดำเนินการและบันทึก
 CREATE TABLE IF NOT EXISTS repair_history (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  repair_id INTEGER NOT NULL REFERENCES repairs(id),
@@ -33,9 +30,13 @@ CREATE TABLE IF NOT EXISTS repair_history (
  note TEXT NOT NULL,
  created_at TEXT NOT NULL DEFAULT (datetime('now','+7 hours'))
 );
+-- เพิ่มดัชนีช่วยให้ค้นหาข้อมูลได้เร็วขึ้น
 CREATE INDEX IF NOT EXISTS idx_repairs_user ON repairs(user_id);
+-- เพิ่มดัชนีช่วยให้ค้นหาข้อมูลได้เร็วขึ้น
 CREATE INDEX IF NOT EXISTS idx_repairs_status ON repairs(status);
+-- เพิ่มดัชนีช่วยให้ค้นหาข้อมูลได้เร็วขึ้น
 CREATE INDEX IF NOT EXISTS idx_history_repair ON repair_history(repair_id);
+-- ชื่อผู้แจ้ง รหัสนักศึกษา และภาพหลักฐานของแต่ละรายการ
 CREATE TABLE IF NOT EXISTS repair_evidence (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  repair_id INTEGER NOT NULL UNIQUE REFERENCES repairs(id),

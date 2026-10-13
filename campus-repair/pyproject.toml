@@ -1,3 +1,4 @@
+# ข้อมูลโปรเจกต์ เวอร์ชัน Python และการตั้งค่าเริ่มเว็บบน Vercel
 [project]
 name = "campus-repair"
 version = "2.0.0"
@@ -14,8 +15,6 @@ dependencies = [
   "WTForms==3.2.1",
   "colorama==0.4.6",
   "psycopg[binary]==3.2.13",
-  "Authlib==1.8.0",
-  "requests==2.32.5",
   "Pillow==12.3.0",
 ]
 

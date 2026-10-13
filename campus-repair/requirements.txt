@@ -1,6 +1,11 @@
+# ไลบรารีที่เว็บต้องใช้ ติดตั้งด้วย pip install -r requirements.txt
+# ตัวจัดการเว็บและเส้นทาง
 Flask==3.1.2
+# ตรวจ CSRF ของฟอร์ม
 Flask-WTF==1.2.2
+# แฮชรหัสผ่านและเครื่องมือเว็บ
 Werkzeug==3.1.3
+# แสดง HTML พร้อมข้อมูลจาก Python
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 itsdangerous==2.2.0
@@ -8,7 +13,7 @@ click==8.1.8
 blinker==1.9.0
 WTForms==3.2.1
 colorama==0.4.6
+# เชื่อมฐานข้อมูล PostgreSQL
 psycopg[binary]==3.2.13
-Authlib==1.8.0
-requests==2.32.5
+# อ่าน ตรวจ และย่อรูปภาพ
 Pillow==12.3.0

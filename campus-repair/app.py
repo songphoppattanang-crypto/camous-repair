@@ -1,3 +1,4 @@
+# ไฟล์หลักของเว็บ: รับฟอร์ม ตรวจสิทธิ์ และจัดการรายการแจ้งซ่อม
 """ระบบแจ้งซ่อม: routes, validation, permissions และคำสั่ง CLI ในไฟล์เดียว."""
 import os
 import re
@@ -19,6 +20,7 @@ STATUSES = {'pending': 'รอรับเรื่อง', 'working': 'กำ�
 csrf = CSRFProtect()
 
 
+# สร้างแอป ตั้งค่าความปลอดภัย และผูกหน้าต่าง ๆ ของเว็บ
 def create_app(test_config=None):
     app = Flask(__name__, instance_relative_config=True)
     on_vercel = os.environ.get('VERCEL') == '1'
@@ -42,51 +44,51 @@ def create_app(test_config=None):
         DATABASE=str(Path(app.instance_path) / 'repair.sqlite3'),
         DATABASE_URL=database_url,
         ON_VERCEL=on_vercel,
-        GOOGLE_CLIENT_ID=os.environ.get('GOOGLE_CLIENT_ID'),
-        GOOGLE_CLIENT_SECRET=os.environ.get('GOOGLE_CLIENT_SECRET'),
-        GOOGLE_REDIRECT_URI=os.environ.get('GOOGLE_REDIRECT_URI'),
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
         SESSION_COOKIE_SECURE=on_vercel or os.environ.get('COOKIE_SECURE') == '1',
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=MAX_UPLOAD + 64 * 1024,
     )
     if test_config:
         app.config.update(test_config)
+    # เปิดการตรวจ token ของฟอร์มเพื่อป้องกันคำขอปลอม
     csrf.init_app(app)
     app.teardown_appcontext(close_db)
 
     @app.before_request
+    # อ่านบัญชีที่ล็อกอินจาก session ก่อนเปิดแต่ละหน้า
     def load_user():
         g.user = None
         if session.get('user_id'):
             g.user = get_db().execute('SELECT * FROM users WHERE id=?',
                                      (session['user_id'],)).fetchone()
             if g.user is None:
+                # ล้างข้อมูลการล็อกอินเดิม
                 session.clear()
 
     @app.context_processor
+    # ส่งชื่อสถานะภาษาไทยให้ทุกหน้าใช้ร่วมกัน
     def common():
         return {'statuses': STATUSES}
 
     @app.after_request
+    # เพิ่ม header ความปลอดภัยและไม่แคชหน้าของผู้ใช้
     def headers(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
-        form_sources = "'self' https://accounts.google.com" if all(app.config.get(k) for k in ('GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','GOOGLE_REDIRECT_URI')) else "'self'"
-        response.headers['Content-Security-Policy'] = f"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action {form_sources}; frame-ancestors 'none'; base-uri 'self'"
-        if request.path.startswith('/auth/google'):
-            response.headers['Cache-Control'] = 'no-store'
-            response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
         if g.get('user'):
             response.headers['Cache-Control'] = 'no-store'
         return response
 
     @app.route('/')
+    # เปิดหน้าแรก หรือส่งคนที่ล็อกอินแล้วไปหน้าตามสิทธิ์
     def home():
         if g.user:
             return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'my_repairs'))
         return render_template('home.html')
 
     @app.route('/register', methods=['GET', 'POST'])
+    # รับข้อมูลสมัครสมาชิก ตรวจข้อมูล แล้วเก็บรหัสผ่านแบบแฮช
     def register():
         if g.user:
             return redirect(url_for('home'))
@@ -109,6 +111,7 @@ def create_app(test_config=None):
                 try:
                     db = get_db()
                     db.execute('INSERT INTO users(username,name,password_hash) VALUES(?,?,?)',
+                               # แปลงรหัสผ่านเป็นแฮช ไม่เก็บรหัสผ่านจริง
                                (username, name, generate_password_hash(password)))
                     db.commit()
                     flash('สมัครสมาชิกแล้ว กรุณาเข้าสู่ระบบ', 'success')
@@ -118,6 +121,7 @@ def create_app(test_config=None):
         return render_template('register.html')
 
     @app.route('/login', methods=['GET', 'POST'])
+    # ตรวจชื่อผู้ใช้และรหัสผ่าน แล้วจำบัญชีไว้ใน session
     def login():
         if g.user:
             return redirect(url_for('home'))
@@ -125,7 +129,9 @@ def create_app(test_config=None):
             user = get_db().execute('SELECT * FROM users WHERE username=?',
                                    (request.form.get('username', '').strip().lower(),)).fetchone()
             password = request.form.get('password', '')
+            # เทียบรหัสผ่านที่กรอกกับแฮชของบัญชี
             if len(password) <= 128 and user and check_password_hash(user['password_hash'], password):
+                # ล้างข้อมูลการล็อกอินเดิม
                 session.clear()
                 session['user_id'] = user['id']
                 session.permanent = True
@@ -135,13 +141,16 @@ def create_app(test_config=None):
 
     @app.post('/logout')
     @login_required
+    # ล้าง session เพื่อออกจากระบบ
     def logout():
+        # ล้างข้อมูลการล็อกอินเดิม
         session.clear()
         flash('ออกจากระบบแล้ว', 'success')
         return redirect(url_for('login'))
 
     @app.get('/repairs')
     @login_required
+    # ดึงเฉพาะรายการของบัญชีที่กำลังล็อกอิน
     def my_repairs():
         rows = get_db().execute('SELECT * FROM repairs WHERE user_id=? ORDER BY id DESC',
                                 (g.user['id'],)).fetchall()
@@ -149,6 +158,7 @@ def create_app(test_config=None):
 
     @app.route('/repairs/new', methods=['GET', 'POST'])
     @login_required
+    # ตรวจข้อมูลผู้แจ้งและภาพ ก่อนสร้างรายการแจ้งซ่อม
     def new_repair():
         if g.user['role'] != 'user':
             abort(403)
@@ -176,6 +186,7 @@ def create_app(test_config=None):
                 flash('กรอกข้อมูลให้ครบ: อุปกรณ์ 2–100, ห้อง 1–100, อาการ 10–2,000 และข้อมูลติดต่อ 5–200 ตัวอักษร', 'danger')
             else:
                 db = get_db()
+                # บันทึกเป็นชุดเดียว ถ้าขั้นตอนใดผิดพลาดให้ย้อนกลับ
                 with db:
                     cur = db.execute('INSERT INTO repairs(user_id,equipment,room,description,contact) VALUES(?,?,?,?,?)',
                                      (g.user['id'], *fields.values()))
@@ -189,6 +200,7 @@ def create_app(test_config=None):
 
     @app.get('/repairs/<int:repair_id>')
     @login_required
+    # เปิดรายละเอียดและประวัติ หลังตรวจสิทธิ์เข้าถึง
     def repair_detail(repair_id):
         # ตรวจสิทธิ์ที่ server ทุกครั้ง แม้พิมพ์ URL หรือเปลี่ยนหมายเลขเอง
         row = get_repair(repair_id)
@@ -197,6 +209,7 @@ def create_app(test_config=None):
 
     @app.get('/repairs/<int:repair_id>/photo')
     @login_required
+    # ส่งภาพให้เจ้าของรายการหรือผู้ดูแลเท่านั้น
     def repair_photo(repair_id):
         get_repair(repair_id)  # ตรวจเจ้าของหรือ Admin ก่อนอ่าน bytes ทุกครั้ง
         evidence = get_db().execute('SELECT photo FROM repair_evidence WHERE repair_id=?', (repair_id,)).fetchone()
@@ -210,6 +223,7 @@ def create_app(test_config=None):
 
     @app.get('/admin')
     @admin_required
+    # นับรายการแต่ละสถานะเพื่อแสดงบนแดชบอร์ด
     def admin_dashboard():
         counts = {s: 0 for s in STATUSES}
         for row in get_db().execute('SELECT status,COUNT(*) AS total FROM repairs GROUP BY status'):
@@ -218,6 +232,7 @@ def create_app(test_config=None):
 
     @app.get('/admin/repairs')
     @admin_required
+    # ค้นหาและกรองรายการทั้งหมดสำหรับผู้ดูแล
     def admin_repairs():
         q = request.args.get('q', '').strip()[:100]
         status = request.args.get('status', '')
@@ -234,6 +249,7 @@ def create_app(test_config=None):
 
     @app.post('/admin/repairs/<int:repair_id>/update')
     @admin_required
+    # อัปเดตสถานะพร้อมบันทึกประวัติการซ่อม
     def update_repair(repair_id):
         get_repair(repair_id)
         status = request.form.get('status', '')
@@ -242,6 +258,7 @@ def create_app(test_config=None):
             flash('เลือกสถานะที่ถูกต้อง และใส่บันทึกการซ่อม 3–2,000 ตัวอักษร', 'danger')
         else:
             db = get_db()
+            # บันทึกเป็นชุดเดียว ถ้าขั้นตอนใดผิดพลาดให้ย้อนกลับ
             with db:
                 db.execute("UPDATE repairs SET status=?,updated_at=datetime('now','+7 hours') WHERE id=?", (status, repair_id))
                 db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
@@ -250,6 +267,7 @@ def create_app(test_config=None):
         return redirect(url_for('repair_detail', repair_id=repair_id))
 
     @app.errorhandler(CSRFError)
+    # แจ้งให้เปิดฟอร์มใหม่ เมื่อ token ไม่ถูกต้องหรือหมดอายุ
     def csrf_error(error):
         return render_template('error.html', code=400, message='แบบฟอร์มหมดอายุหรือไม่ถูกต้อง กรุณาเปิดหน้าใหม่แล้วลองอีกครั้ง'), 400
 
@@ -257,6 +275,7 @@ def create_app(test_config=None):
         app.register_error_handler(code, lambda error, c=code, m=message: (render_template('error.html', code=c, message=m), c))
 
     @app.cli.command('init-db')
+    # คำสั่งสร้างตารางโดยเก็บข้อมูลเดิมไว้
     def init_db_command():
         """สร้างตารางโดยไม่ลบข้อมูลเดิม."""
         init_db()
@@ -265,6 +284,7 @@ def create_app(test_config=None):
     @app.cli.command('create-admin')
     @click.option('--username', prompt='Admin username')
     @click.option('--name', prompt='Display name', default='ผู้ดูแลระบบ')
+    # สร้างบัญชีผู้ดูแลจากข้อมูลที่กรอกใน Terminal
     def create_admin(username, name):
         """สร้าง admin: รับรหัสผ่านแบบซ่อน หรือ ADMIN_PASSWORD."""
         username = username.strip().lower()
@@ -274,14 +294,17 @@ def create_app(test_config=None):
         init_db()
         db = get_db()
         try:
+            # บันทึกเป็นชุดเดียว ถ้าขั้นตอนใดผิดพลาดให้ย้อนกลับ
             with db:
                 db.execute('INSERT INTO users(username,name,password_hash,role) VALUES(?,?,?,?)',
+                           # แปลงรหัสผ่านเป็นแฮช ไม่เก็บรหัสผ่านจริง
                            (username, name.strip(), generate_password_hash(password), 'admin'))
         except INTEGRITY_ERRORS:
             raise click.ClickException('ชื่อผู้ใช้มีอยู่แล้ว ไม่เปลี่ยนสิทธิ์หรือทับรหัสผ่านเดิม')
         click.echo('สร้างบัญชีผู้ดูแลเรียบร้อย')
 
     @app.cli.command('seed-demo')
+    # เพิ่มบัญชีและรายการตัวอย่างสำหรับลองระบบ
     def seed_demo():
         """สร้างนักศึกษาตัวอย่างและรายการ 4 สถานะ ครั้งเดียว."""
         password = os.environ.get('DEMO_PASSWORD') or click.prompt('Demo password (10-128 characters)', hide_input=True, confirmation_prompt=True)
@@ -291,8 +314,10 @@ def create_app(test_config=None):
         db = get_db()
         if db.execute("SELECT id FROM users WHERE username='student_demo'").fetchone():
             raise click.ClickException('มี student_demo แล้ว ไม่เพิ่มข้อมูลซ้ำ')
+        # บันทึกเป็นชุดเดียว ถ้าขั้นตอนใดผิดพลาดให้ย้อนกลับ
         with db:
             uid = db.execute('INSERT INTO users(username,name,password_hash) VALUES(?,?,?)',
+                             # แปลงรหัสผ่านเป็นแฮช ไม่เก็บรหัสผ่านจริง
                              ('student_demo', 'นักศึกษาตัวอย่าง', generate_password_hash(password))).lastrowid
             for i, status in enumerate(STATUSES):
                 rid = db.execute('INSERT INTO repairs(user_id,equipment,room,description,contact,status) VALUES(?,?,?,?,?,?)',
@@ -300,11 +325,10 @@ def create_app(test_config=None):
                 db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
                            (rid, uid, status, 'ข้อมูลสาธิตสถานะเริ่มต้นสำหรับทดลองระบบ'))
         click.echo('สร้าง student_demo และรายการตัวอย่าง 4 รายการแล้ว')
-    from google_auth import init_google
-    init_google(app)
     return app
 
 
+# ใช้การเชื่อมต่อฐานข้อมูลร่วมกันภายในคำขอเดียว
 def get_db():
     from flask import current_app
     if 'db' not in g:
@@ -312,18 +336,21 @@ def get_db():
     return g.db
 
 
+# ปิดการเชื่อมต่อเมื่อจบคำขอ
 def close_db(error=None):
     db = g.pop('db', None)
     if db:
         db.close()
 
 
+# เลือก schema ให้ตรงกับฐานข้อมูลแล้วสร้างตาราง
 def init_db():
     from flask import current_app
     filename = 'schema_postgres.sql' if current_app.config.get('DATABASE_URL') else 'schema.sql'
     get_db().executescript((Path(current_app.root_path) / filename).read_text(encoding='utf-8'))
 
 
+# บังคับให้ล็อกอินก่อนใช้หน้าที่ครอบด้วยตัวนี้
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -333,6 +360,7 @@ def login_required(view):
     return wrapped
 
 
+# ตรวจว่าบัญชีมีสิทธิ์ผู้ดูแลก่อนให้เข้าหน้า
 def admin_required(view):
     @wraps(view)
     @login_required
@@ -343,6 +371,7 @@ def admin_required(view):
     return wrapped
 
 
+# ดึงรายการและกันผู้ใช้ไม่ให้เปิดข้อมูลของคนอื่น
 def get_repair(repair_id):
     row = get_db().execute('SELECT r.*,u.name AS owner,e.reporter_name,e.student_id,e.id AS evidence_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id WHERE r.id=?', (repair_id,)).fetchone()
     if row is None or (g.user['role'] != 'admin' and row['user_id'] != g.user['id']):
