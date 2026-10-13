@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% block title %}เชื่อมบัญชี Google{% endblock %}{% block content %}
+<section class="surface auth-card"><h1>เชื่อมบัญชี Google</h1>
+{% if identity %}<div class="alert alert-success">เชื่อมบัญชีแล้ว: {{ identity.email }}</div><p>ครั้งต่อไปคุณเข้าสู่ระบบด้วย Google บัญชีนี้ได้ รายการแจ้งซ่อมเดิมและสิทธิ์ผู้ใช้ยังอยู่ครบ</p>
+{% else %}<p>เชื่อม Google กับบัญชีที่คุณเข้าสู่ระบบอยู่ เพื่อใช้ทางเลือกเข้าสู่ระบบโดยไม่สร้างบัญชีใหม่ รายการแจ้งซ่อมเดิมจะอยู่ในบัญชีเดิม</p><form method="post" action="{{ url_for('google_auth.link_google') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-primary w-100">เชื่อมบัญชี Google</button></form>{% endif %}
+<a class="btn btn-primary mt-3" href="{{ url_for('my_repairs') }}">กลับรายการของฉัน</a></section>{% endblock %}
