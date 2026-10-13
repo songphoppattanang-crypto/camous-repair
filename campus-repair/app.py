@@ -2,15 +2,17 @@
 import os
 import re
 import secrets
+from io import BytesIO
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 
 import click
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.security import check_password_hash, generate_password_hash
 from database import connect_database, INTEGRITY_ERRORS
+from evidence import prepare_photo, MAX_UPLOAD
 
 STATUSES = {'pending': 'รอรับเรื่อง', 'working': 'กำลังดำเนินการ',
             'done': 'เสร็จสิ้น', 'unrepairable': 'ไม่สามารถซ่อมได้'}
@@ -39,9 +41,13 @@ def create_app(test_config=None):
         SECRET_KEY=secret or secrets.token_hex(32),
         DATABASE=str(Path(app.instance_path) / 'repair.sqlite3'),
         DATABASE_URL=database_url,
+        ON_VERCEL=on_vercel,
+        GOOGLE_CLIENT_ID=os.environ.get('GOOGLE_CLIENT_ID'),
+        GOOGLE_CLIENT_SECRET=os.environ.get('GOOGLE_CLIENT_SECRET'),
+        GOOGLE_REDIRECT_URI=os.environ.get('GOOGLE_REDIRECT_URI'),
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
         SESSION_COOKIE_SECURE=on_vercel or os.environ.get('COOKIE_SECURE') == '1',
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=64 * 1024,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=MAX_UPLOAD + 64 * 1024,
     )
     if test_config:
         app.config.update(test_config)
@@ -65,7 +71,11 @@ def create_app(test_config=None):
     def headers(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+        form_sources = "'self' https://accounts.google.com" if all(app.config.get(k) for k in ('GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','GOOGLE_REDIRECT_URI')) else "'self'"
+        response.headers['Content-Security-Policy'] = f"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action {form_sources}; frame-ancestors 'none'; base-uri 'self'"
+        if request.path.startswith('/auth/google'):
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['Referrer-Policy'] = 'no-referrer'
         if g.get('user'):
             response.headers['Cache-Control'] = 'no-store'
         return response
@@ -145,15 +155,32 @@ def create_app(test_config=None):
         if request.method == 'POST':
             fields = {k: request.form.get(k, '').strip() for k in
                       ('equipment', 'room', 'description', 'contact')}
+            reporter_name = request.form.get('reporter_name', '').strip()
+            student_id = request.form.get('student_id', '').strip()
+            photo = None
+            error = None
+            if not 3 <= len(reporter_name) <= 100 or len(reporter_name.split()) < 2:
+                error = 'กรุณากรอกชื่อและนามสกุล คั่นด้วยช่องว่าง ไม่เกิน 100 ตัวอักษร'
+            elif not re.fullmatch(r'[0-9]{8,15}(?:-[0-9]{1,2})?', student_id):
+                error = 'รหัสนักศึกษาต้องเป็นตัวเลข 8–15 หลัก และอาจมีเลขท้ายหลังเครื่องหมาย -'
+            else:
+                try:
+                    photo = prepare_photo(request.files.get('photo'))
+                except ValueError as exc:
+                    error = str(exc)
             limits = {'equipment': (2, 100), 'room': (1, 100),
                       'description': (10, 2000), 'contact': (5, 200)}
-            if any(not lo <= len(fields[k]) <= hi for k, (lo, hi) in limits.items()):
+            if error:
+                flash(error, 'danger')
+            elif any(not lo <= len(fields[k]) <= hi for k, (lo, hi) in limits.items()):
                 flash('กรอกข้อมูลให้ครบ: อุปกรณ์ 2–100, ห้อง 1–100, อาการ 10–2,000 และข้อมูลติดต่อ 5–200 ตัวอักษร', 'danger')
             else:
                 db = get_db()
                 with db:
                     cur = db.execute('INSERT INTO repairs(user_id,equipment,room,description,contact) VALUES(?,?,?,?,?)',
                                      (g.user['id'], *fields.values()))
+                    db.execute('INSERT INTO repair_evidence(repair_id,reporter_name,student_id,photo) VALUES(?,?,?,?)',
+                               (cur.lastrowid,reporter_name,student_id,photo))
                     db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
                                (cur.lastrowid, g.user['id'], 'pending', 'สร้างรายการแจ้งซ่อม'))
                 flash('ส่งรายการแจ้งซ่อมแล้ว', 'success')
@@ -168,6 +195,19 @@ def create_app(test_config=None):
         history = get_db().execute('SELECT h.*,u.name AS actor FROM repair_history h JOIN users u ON u.id=h.actor_id WHERE repair_id=? ORDER BY h.id DESC', (repair_id,)).fetchall()
         return render_template('detail.html', repair=row, history=history)
 
+    @app.get('/repairs/<int:repair_id>/photo')
+    @login_required
+    def repair_photo(repair_id):
+        get_repair(repair_id)  # ตรวจเจ้าของหรือ Admin ก่อนอ่าน bytes ทุกครั้ง
+        evidence = get_db().execute('SELECT photo FROM repair_evidence WHERE repair_id=?', (repair_id,)).fetchone()
+        if evidence is None:
+            abort(404)
+        response = send_file(BytesIO(bytes(evidence['photo'])),mimetype='image/webp',
+                             download_name=f'repair-{repair_id}.webp',max_age=0)
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
+        return response
+
     @app.get('/admin')
     @admin_required
     def admin_dashboard():
@@ -181,11 +221,11 @@ def create_app(test_config=None):
     def admin_repairs():
         q = request.args.get('q', '').strip()[:100]
         status = request.args.get('status', '')
-        sql = 'SELECT r.*,u.name AS owner FROM repairs r JOIN users u ON u.id=r.user_id WHERE 1=1'
+        sql = 'SELECT r.*,u.name AS owner,e.reporter_name,e.student_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id WHERE 1=1'
         params = []
         if q:
-            sql += ' AND (r.equipment LIKE ? OR r.room LIKE ? OR u.name LIKE ? OR CAST(r.id AS TEXT)=?)'
-            params += ['%' + q + '%'] * 3 + [q]
+            sql += ' AND (r.equipment LIKE ? OR r.room LIKE ? OR u.name LIKE ? OR e.reporter_name LIKE ? OR e.student_id LIKE ? OR CAST(r.id AS TEXT)=?)'
+            params += ['%' + q + '%'] * 5 + [q]
         if status in STATUSES:
             sql += ' AND r.status=?'
             params.append(status)
@@ -260,6 +300,8 @@ def create_app(test_config=None):
                 db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
                            (rid, uid, status, 'ข้อมูลสาธิตสถานะเริ่มต้นสำหรับทดลองระบบ'))
         click.echo('สร้าง student_demo และรายการตัวอย่าง 4 รายการแล้ว')
+    from google_auth import init_google
+    init_google(app)
     return app
 
 
@@ -302,7 +344,7 @@ def admin_required(view):
 
 
 def get_repair(repair_id):
-    row = get_db().execute('SELECT r.*,u.name AS owner FROM repairs r JOIN users u ON u.id=r.user_id WHERE r.id=?', (repair_id,)).fetchone()
+    row = get_db().execute('SELECT r.*,u.name AS owner,e.reporter_name,e.student_id,e.id AS evidence_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id WHERE r.id=?', (repair_id,)).fetchone()
     if row is None or (g.user['role'] != 'admin' and row['user_id'] != g.user['id']):
         abort(404)
     return row

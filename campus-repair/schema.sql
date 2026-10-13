@@ -1,4 +1,11 @@
 PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS google_identities (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+ google_sub TEXT NOT NULL UNIQUE,
+ email TEXT NOT NULL,
+ created_at TEXT NOT NULL DEFAULT (datetime('now','+7 hours'))
+);
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  username TEXT NOT NULL UNIQUE,
@@ -29,3 +36,10 @@ CREATE TABLE IF NOT EXISTS repair_history (
 CREATE INDEX IF NOT EXISTS idx_repairs_user ON repairs(user_id);
 CREATE INDEX IF NOT EXISTS idx_repairs_status ON repairs(status);
 CREATE INDEX IF NOT EXISTS idx_history_repair ON repair_history(repair_id);
+CREATE TABLE IF NOT EXISTS repair_evidence (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ repair_id INTEGER NOT NULL UNIQUE REFERENCES repairs(id),
+ reporter_name TEXT NOT NULL,
+ student_id TEXT NOT NULL,
+ photo BLOB NOT NULL CHECK(length(photo) <= 512000)
+);
