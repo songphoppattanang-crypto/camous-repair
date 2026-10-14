@@ -1,0 +1,4 @@
+{# หน้ารายการของฉัน: แสดงเฉพาะงานที่ผู้ใช้แจ้ง #}
+{% extends 'base.html' %}
+{# ใช้โครงหน้าและเมนูจาก base.html #}
+{% block title %}รายการของฉัน{% endblock %}{% block content %}<div class="page-heading"><div><span class="eyebrow">พื้นที่ของคุณ</span><h1>รายการแจ้งซ่อมของฉัน</h1><p>ติดตามความคืบหน้าและอ่านบันทึกการซ่อม • {{ repairs|length }} รายการ</p></div><a class="btn btn-primary" href="{{ url_for('new_repair') }}">+ แจ้งซ่อมใหม่</a></div><section class="surface table-panel">{% include '_table.html' %}</section>{% endblock %}

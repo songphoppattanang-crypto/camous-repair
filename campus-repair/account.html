@@ -1,0 +1,2 @@
+{# หน้าบัญชี: เพิ่มอีเมลให้สมาชิกเดิมและแก้ข้อมูลส่วนตัว #}
+{% extends 'base.html' %}{% block title %}ข้อมูลบัญชี{% endblock %}{% block content %}<section class="auth-card surface"><h1>ข้อมูลบัญชี</h1><p>บัญชี: {{ g.user.username }}</p><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% include '_profile_fields.html' %}<button class="btn btn-primary w-100">บันทึกข้อมูล</button></form></section>{% endblock %}

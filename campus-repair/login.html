@@ -1,0 +1,6 @@
+{# หน้าเข้าสู่ระบบ: ส่งชื่อผู้ใช้และรหัสผ่านให้ Flask ตรวจ #}
+{% extends 'base.html' %}
+{# ใช้โครงหน้าและเมนูจาก base.html #}
+{% block title %}เข้าสู่ระบบ{% endblock %}{% block body_class %}login-page{% endblock %}{% block content %}<section class="auth-card surface"><span class="eyebrow">ยินดีต้อนรับกลับ</span><h1>เข้าสู่ระบบ</h1><p class="text-secondary">ผู้ใช้และผู้ดูแลเข้าสู่ระบบผ่านหน้านี้ ระบบจะแสดงหน้าตามสิทธิ์ของบัญชี</p>{# ฟอร์มส่งข้อมูลตาม method และปลายทางที่กำหนด #}
+<form method="post">{# แนบ token เพื่อให้เซิร์ฟเวอร์ตรวจว่าฟอร์มมาจากเว็บนี้ #}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="username" class="form-label">ชื่อผู้ใช้หรืออีเมล</label><input class="form-control mb-3" id="username" name="username" autocomplete="username" required maxlength="254" value="{{ request.form.get('username', '') }}"><label class="form-label" for="password">รหัสผ่าน</label><input class="form-control mb-4" id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required><button class="btn btn-primary w-100">เข้าสู่ระบบ</button></form><p class="mt-4 mb-0 text-center">ยังไม่มีบัญชี? <a href="{{ url_for('register') }}">สมัครสมาชิก</a></p></section>{% endblock %}

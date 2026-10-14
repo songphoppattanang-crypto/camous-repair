@@ -1,0 +1,27 @@
+{# หน้าแรก: แสดงบริการ ปุ่มเข้าสู่ระบบ และสามขั้นตอน #}
+{% extends 'base.html' %}
+{# ใช้โครงหน้าและเมนูจาก base.html #}
+
+{% block title %}บริการแจ้งซ่อมอุปกรณ์ภายในสถานศึกษา{% endblock %}
+{% block body_class %}landing-page{% endblock %}
+{% block main_class %}landing-main{% endblock %}
+{% block content %}
+<section class="landing-hero" aria-labelledby="landing-title">
+  <img class="landing-background" src="{{ url_for('static', filename='images/classroom-equipment.webp') }}" alt="" width="1536" height="1024" fetchpriority="high" decoding="async">
+  <div class="landing-content">
+    <p class="landing-kicker">แจ้งซ่อมง่าย ติดตามได้ทุกขั้นตอน</p>
+    <h1 id="landing-title">บริการแจ้งซ่อมอุปกรณ์<span>ภายในสถานศึกษา</span></h1>
+    <p class="landing-description">ดูแลอุปกรณ์ให้พร้อมใช้งาน เพื่อให้การเรียนรู้เดินหน้าต่อ</p>
+    <a class="btn btn-primary btn-lg landing-cta" href="{{ url_for('login') }}">เข้าสู่ระบบเพื่อแจ้งซ่อม</a>
+  </div>
+  <a class="landing-scroll" href="#repair-steps">ดูขั้นตอนการแจ้งซ่อม <span aria-hidden="true">↓</span></a>
+</section>
+<section id="repair-steps" class="container landing-steps" aria-labelledby="steps-title">
+  <div class="landing-steps-heading"><span class="eyebrow">เริ่มต้นได้ง่าย</span><h2 id="steps-title">3 ขั้นตอนในการแจ้งซ่อม</h2><p>ส่งเรื่อง รับการดูแล และติดตามผลได้ในที่เดียว</p></div>
+  <div class="row g-3 steps">
+    <div class="col-md-4"><article class="surface h-100"><span class="step-no">01</span><h3>แจ้งรายละเอียด</h3><p>เข้าสู่ระบบ ระบุอุปกรณ์ สถานที่ และอาการที่พบ แล้วส่งรายการแจ้งซ่อม</p></article></div>
+    <div class="col-md-4"><article class="surface h-100"><span class="step-no">02</span><h3>เจ้าหน้าที่รับเรื่อง</h3><p>ผู้ดูแลตรวจสอบรายการ ดำเนินการซ่อม และบันทึกความคืบหน้าให้คุณทราบ</p></article></div>
+    <div class="col-md-4"><article class="surface h-100"><span class="step-no">03</span><h3>ติดตามผลการซ่อม</h3><p>ดูสถานะและประวัติการดำเนินการได้จากหน้ารายการของฉัน จนงานซ่อมเสร็จสิ้น</p></article></div>
+  </div>
+</section>
+{% endblock %}

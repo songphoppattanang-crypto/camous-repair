@@ -1,0 +1,4 @@
+{# หน้าแจ้งข้อผิดพลาด: แสดงข้อความตามกรณีที่เข้าใช้งานไม่ได้ #}
+{% extends 'base.html' %}
+{# ใช้โครงหน้าและเมนูจาก base.html #}
+{% block title %}{{ code }}{% endblock %}{% block content %}<section class="surface empty-state"><span class="eyebrow">{{ code }}</span><h1>{{ message }}</h1><a href="{{ url_for('home') }}" class="btn btn-primary mt-3">กลับหน้าหลัก</a></section>{% endblock %}
