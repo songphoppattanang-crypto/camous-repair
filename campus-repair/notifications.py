@@ -1,5 +1,6 @@
 # สร้างอีเมลในฐานข้อมูล แล้วส่งผ่าน SMTP โดยไม่เก็บรหัสลับในโค้ด
 import os
+import re
 import ssl
 import smtplib
 from email.message import EmailMessage
@@ -7,7 +8,7 @@ from flask import current_app
 from member import profile_fields
 
 def queue_repair_mail(db, repair_id, status_label, event):
-    row = db.execute('SELECT r.equipment,r.room,p.email FROM repairs r LEFT JOIN user_profiles p ON p.user_id=r.user_id WHERE r.id=?', (repair_id,)).fetchone()
+    row = db.execute('SELECT r.*,u.name AS account_name,p.email,p.title,p.faculty,p.major,e.reporter_name,e.student_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN user_profiles p ON p.user_id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id WHERE r.id=?', (repair_id,)).fetchone()
     recipients = set()
     if row['email']: recipients.add(row['email'])
     recipients.update(r['email'] for r in db.execute("SELECT p.email FROM users u JOIN user_profiles p ON p.user_id=u.id WHERE u.role='admin'").fetchall())
@@ -15,7 +16,37 @@ def queue_repair_mail(db, repair_id, status_label, event):
     site = os.environ.get('SITE_URL','https://camous-repair.vercel.app').rstrip('/')
     if not site.startswith('https://'): raise ValueError('SITE_URL ต้องเริ่มด้วย https://')
     subject = f'{event} #{repair_id:04d} — {status_label}'
-    body = f'รายการ #{repair_id:04d}\nอุปกรณ์: {row["equipment"]}\nสถานที่: {row["room"]}\nสถานะ: {status_label}\n\nเข้าสู่ระบบเพื่อดูรายละเอียด: {site}/repairs/{repair_id}\n\nอีเมลแจ้งเตือนจากระบบแจ้งซ่อมอุปกรณ์ภายในสถานศึกษา'
+    # เก็บรายละเอียดและประวัติ ณ เวลาที่แจ้ง เพื่อให้การส่งซ้ำได้ข้อความเดิม
+    history = db.execute('SELECT h.*,u.name AS actor FROM repair_history h JOIN users u ON u.id=h.actor_id WHERE h.repair_id=? ORDER BY h.id', (repair_id,)).fetchall()
+    labels = {'pending':'รอรับเรื่อง','working':'กำลังดำเนินการ','done':'เสร็จสิ้น','unrepairable':'ไม่สามารถซ่อมได้'}
+    lines = [
+        f'รายการ #{repair_id:04d}', event,
+        f'สถานะล่าสุด: {status_label}',
+        f'แจ้งเมื่อ: {row["created_at"]} (เวลาไทย)',
+        f'อัปเดตเมื่อ: {row["updated_at"]} (เวลาไทย)',
+        '', 'ข้อมูลผู้แจ้ง',
+        f'ชื่อ–นามสกุล: {row["reporter_name"] or row["account_name"]}',
+        f'คำนำหน้า: {row["title"] or "ไม่ได้ระบุ"}',
+        f'รหัสนักศึกษา: {row["student_id"] or "ไม่ได้ระบุ"}',
+        f'คณะ: {row["faculty"] or "ไม่ได้ระบุ"}',
+        f'สาขา: {row["major"] or "ไม่ได้ระบุ"}',
+        f'อีเมล: {row["email"] or "ไม่ได้ระบุ"}',
+        f'ข้อมูลติดต่อ: {row["contact"]}',
+        '', 'รายละเอียดการแจ้งซ่อม',
+        f'อุปกรณ์: {row["equipment"]}',
+        f'สถานที่: {row["room"]}',
+        'อาการที่พบ:', row['description'],
+        '', 'ประวัติการดำเนินการ',
+    ]
+    for item in history:
+        lines.extend([f'{item["created_at"]} | {labels.get(item["status"], item["status"])}',
+                      f'ผู้ดำเนินการ: {item["actor"]}', f'บันทึก: {item["note"]}', ''])
+    if not history: lines.append('ยังไม่มีประวัติ')
+    has_photo = db.execute('SELECT id FROM repair_evidence WHERE repair_id=?',(repair_id,)).fetchone()
+    lines.extend(['ภาพอุปกรณ์: ดูไฟล์รูปที่แนบมากับอีเมล' if has_photo else 'ภาพอุปกรณ์: ไม่มีภาพแนบ',
+                  '', f'หากต้องการดำเนินการบนเว็บ: {site}/repairs/{repair_id}',
+                  'อีเมลแจ้งเตือนจากระบบแจ้งซ่อมอุปกรณ์ภายในสถานศึกษา'])
+    body = '\n'.join(lines)
     ids = []
     for address in sorted(recipients):
         # ตรวจที่อยู่อีเมลก่อนนำมาเป็นผู้รับ ป้องกันอักขระแทรก header
@@ -51,6 +82,14 @@ def deliver_pending(db, ids=None):
             message['Subject'] = row['subject']
             message['Message-ID'] = f'<repair-notice-{row["id"]}@{username.split("@")[-1]}>'
             message.set_content(row['body'])
+            # แนบรูปของรายการนี้เท่านั้น ผู้รับแต่ละคนได้รับอีเมลแยกกัน
+            match = re.search(r'^รายการ #(\d+)', row['body'], re.MULTILINE)
+            if match:
+                repair_id = int(match.group(1))
+                evidence = db.execute('SELECT photo FROM repair_evidence WHERE repair_id=?',(repair_id,)).fetchone()
+                if evidence:
+                    message.add_attachment(bytes(evidence['photo']),maintype='image',subtype='webp',
+                                           filename=f'repair-{repair_id:04d}.webp')
             transport = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
             with transport(host,port,timeout=8) as smtp:
                 if port == 587:
