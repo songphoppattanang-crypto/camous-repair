@@ -65,3 +65,15 @@ CREATE TABLE IF NOT EXISTS email_outbox (
  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent')),
  attempts INTEGER NOT NULL DEFAULT 0
 );
+
+-- เก็บการยกเลิกแยกจากงานเดิม เพื่ออัปเดตโดยไม่ลบข้อมูล
+CREATE TABLE IF NOT EXISTS repair_cancellations (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, repair_id INTEGER NOT NULL UNIQUE REFERENCES repairs(id),
+ actor_id INTEGER NOT NULL REFERENCES users(id), reason TEXT NOT NULL,
+ created_at TEXT NOT NULL DEFAULT (datetime('now','+7 hours'))
+);
+-- ชื่อผู้รับผิดชอบงานซ่อม ไม่จำเป็นต้องมีบัญชีช่าง
+CREATE TABLE IF NOT EXISTS repair_assignments (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, repair_id INTEGER NOT NULL UNIQUE REFERENCES repairs(id),
+ assignee TEXT NOT NULL, actor_id INTEGER NOT NULL REFERENCES users(id)
+);

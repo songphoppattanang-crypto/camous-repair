@@ -8,7 +8,7 @@ from flask import current_app
 from member import profile_fields
 
 def queue_repair_mail(db, repair_id, status_label, event):
-    row = db.execute('SELECT r.*,u.name AS account_name,p.email,p.title,p.faculty,p.major,e.reporter_name,e.student_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN user_profiles p ON p.user_id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id WHERE r.id=?', (repair_id,)).fetchone()
+    row = db.execute('SELECT r.*,u.name AS account_name,p.email,p.title,p.faculty,p.major,e.reporter_name,e.student_id,a.assignee FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN user_profiles p ON p.user_id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id LEFT JOIN repair_assignments a ON a.repair_id=r.id WHERE r.id=?', (repair_id,)).fetchone()
     recipients = set()
     if row['email']: recipients.add(row['email'])
     recipients.update(r['email'] for r in db.execute("SELECT p.email FROM users u JOIN user_profiles p ON p.user_id=u.id WHERE u.role='admin'").fetchall())
@@ -18,7 +18,10 @@ def queue_repair_mail(db, repair_id, status_label, event):
     subject = f'{event} #{repair_id:04d} — {status_label}'
     # เก็บรายละเอียดและประวัติ ณ เวลาที่แจ้ง เพื่อให้การส่งซ้ำได้ข้อความเดิม
     history = db.execute('SELECT h.*,u.name AS actor FROM repair_history h JOIN users u ON u.id=h.actor_id WHERE h.repair_id=? ORDER BY h.id', (repair_id,)).fetchall()
-    labels = {'pending':'รอรับเรื่อง','working':'กำลังดำเนินการ','done':'เสร็จสิ้น','unrepairable':'ไม่สามารถซ่อมได้'}
+    cancellation = db.execute('SELECT c.*,u.name AS actor FROM repair_cancellations c JOIN users u ON u.id=c.actor_id WHERE repair_id=?',(repair_id,)).fetchone()
+    if cancellation:
+        history.append({'status':'cancelled','created_at':cancellation['created_at'],'actor':cancellation['actor'],'note':cancellation['reason']})
+    labels = {'pending':'รอรับเรื่อง','working':'กำลังดำเนินการ','done':'เสร็จสิ้น','unrepairable':'ไม่สามารถซ่อมได้','cancelled':'ยกเลิกแล้ว'}
     lines = [
         f'รายการ #{repair_id:04d}', event,
         f'สถานะล่าสุด: {status_label}',
@@ -35,6 +38,7 @@ def queue_repair_mail(db, repair_id, status_label, event):
         '', 'รายละเอียดการแจ้งซ่อม',
         f'อุปกรณ์: {row["equipment"]}',
         f'สถานที่: {row["room"]}',
+        f'ผู้รับผิดชอบ: {row["assignee"] or "ยังไม่ได้มอบหมาย"}',
         'อาการที่พบ:', row['description'],
         '', 'ประวัติการดำเนินการ',
     ]

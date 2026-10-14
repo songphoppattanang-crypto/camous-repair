@@ -17,9 +17,10 @@ from database import connect_database, INTEGRITY_ERRORS
 from evidence import prepare_photo, MAX_UPLOAD
 from member import profile_fields, TITLES
 from notifications import queue_repair_mail, deliver_pending
+from enhancements import paginate, display_repairs
 
 STATUSES = {'pending': 'รอรับเรื่อง', 'working': 'กำลังดำเนินการ',
-            'done': 'เสร็จสิ้น', 'unrepairable': 'ไม่สามารถซ่อมได้'}
+            'done': 'เสร็จสิ้น', 'unrepairable': 'ไม่สามารถซ่อมได้', 'cancelled': 'ยกเลิกแล้ว'}
 csrf = CSRFProtect()
 
 
@@ -162,9 +163,14 @@ def create_app(test_config=None):
     @login_required
     # ดึงเฉพาะรายการของบัญชีที่กำลังล็อกอิน
     def my_repairs():
-        rows = get_db().execute('SELECT * FROM repairs WHERE user_id=? ORDER BY id DESC',
-                                (g.user['id'],)).fetchall()
-        return render_template('repairs.html', repairs=rows)
+        status = request.args.get('status','')
+        query = 'SELECT r.*,c.id AS cancelled_id FROM repairs r LEFT JOIN repair_cancellations c ON c.repair_id=r.id WHERE r.user_id=?'
+        params=[g.user['id']]
+        if status in STATUSES:
+            query += " AND (CASE WHEN c.id IS NOT NULL THEN 'cancelled' ELSE r.status END)=?"
+            params.append(status)
+        rows, pagination = paginate(get_db(),query,params)
+        return render_template('repairs.html',repairs=display_repairs(rows),selected_status=status,pagination=pagination)
 
     @app.route('/repairs/new', methods=['GET', 'POST'])
     @login_required
@@ -218,6 +224,9 @@ def create_app(test_config=None):
         # ตรวจสิทธิ์ที่ server ทุกครั้ง แม้พิมพ์ URL หรือเปลี่ยนหมายเลขเอง
         row = get_repair(repair_id)
         history = get_db().execute('SELECT h.*,u.name AS actor FROM repair_history h JOIN users u ON u.id=h.actor_id WHERE repair_id=? ORDER BY h.id DESC', (repair_id,)).fetchall()
+        cancellation = get_db().execute('SELECT c.*,u.name AS actor FROM repair_cancellations c JOIN users u ON u.id=c.actor_id WHERE repair_id=?',(repair_id,)).fetchone()
+        if cancellation:
+            history.insert(0, {'status':'cancelled','note':cancellation['reason'],'created_at':cancellation['created_at'],'actor':cancellation['actor']})
         return render_template('detail.html', repair=row, history=history)
 
     @app.get('/repairs/<int:repair_id>/photo')
@@ -239,7 +248,7 @@ def create_app(test_config=None):
     # นับรายการแต่ละสถานะเพื่อแสดงบนแดชบอร์ด
     def admin_dashboard():
         counts = {s: 0 for s in STATUSES}
-        for row in get_db().execute('SELECT status,COUNT(*) AS total FROM repairs GROUP BY status'):
+        for row in get_db().execute("SELECT CASE WHEN c.id IS NOT NULL THEN 'cancelled' ELSE r.status END AS status,COUNT(*) AS total FROM repairs r LEFT JOIN repair_cancellations c ON c.repair_id=r.id GROUP BY CASE WHEN c.id IS NOT NULL THEN 'cancelled' ELSE r.status END"):
             counts[row['status']] = row['total']
         return render_template('dashboard.html', counts=counts)
 
@@ -249,31 +258,42 @@ def create_app(test_config=None):
     def admin_repairs():
         q = request.args.get('q', '').strip()[:100]
         status = request.args.get('status', '')
-        sql = 'SELECT r.*,u.name AS owner,e.reporter_name,e.student_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id WHERE 1=1'
+        sql = 'SELECT r.*,u.name AS owner,e.reporter_name,e.student_id,c.id AS cancelled_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id LEFT JOIN repair_cancellations c ON c.repair_id=r.id WHERE 1=1'
         params = []
         if q:
             sql += ' AND (r.equipment LIKE ? OR r.room LIKE ? OR u.name LIKE ? OR e.reporter_name LIKE ? OR e.student_id LIKE ? OR CAST(r.id AS TEXT)=?)'
             params += ['%' + q + '%'] * 5 + [q]
         if status in STATUSES:
-            sql += ' AND r.status=?'
+            sql += " AND (CASE WHEN c.id IS NOT NULL THEN 'cancelled' ELSE r.status END)=?"
             params.append(status)
-        rows = get_db().execute(sql + ' ORDER BY r.id DESC', params).fetchall()
-        return render_template('admin_repairs.html', repairs=rows, q=q, selected_status=status)
+        rows,pagination = paginate(get_db(),sql,params)
+        return render_template('admin_repairs.html', repairs=display_repairs(rows), q=q, selected_status=status,pagination=pagination)
 
     @app.post('/admin/repairs/<int:repair_id>/update')
     @admin_required
     # อัปเดตสถานะพร้อมบันทึกประวัติการซ่อม
     def update_repair(repair_id):
-        get_repair(repair_id)
+        repair = get_repair(repair_id)
+        if repair['status']=='cancelled':
+            flash('รายการนี้ยกเลิกแล้ว ไม่สามารถอัปเดตการซ่อมได้','warning')
+            return redirect(url_for('repair_detail',repair_id=repair_id))
+        assignee = request.form.get('assignee','').strip()
         status = request.form.get('status', '')
         note = request.form.get('note', '').strip()
-        if status not in STATUSES or not 3 <= len(note) <= 2000:
+        if status not in STATUSES or status=='cancelled' or not 3 <= len(note) <= 2000 or len(assignee)>100:
             flash('เลือกสถานะที่ถูกต้อง และใส่บันทึกการซ่อม 3–2,000 ตัวอักษร', 'danger')
         else:
             db = get_db()
             # บันทึกเป็นชุดเดียว ถ้าขั้นตอนใดผิดพลาดให้ย้อนกลับ
             with db:
-                db.execute("UPDATE repairs SET status=?,updated_at=datetime('now','+7 hours') WHERE id=?", (status, repair_id))
+                if current_db_is_postgres():
+                    db.execute('SELECT id FROM repairs WHERE id=? FOR UPDATE',(repair_id,)).fetchone()
+                if get_repair(repair_id)['status']=='cancelled': abort(409)
+                cur = db.execute("UPDATE repairs SET status=?,updated_at=datetime('now','+7 hours') WHERE id=? AND NOT EXISTS(SELECT 1 FROM repair_cancellations WHERE repair_id=?)", (status, repair_id,repair_id))
+                if cur.rowcount != 1: abort(409)
+                db.execute('INSERT INTO repair_assignments(repair_id,assignee,actor_id) VALUES(?,?,?) ON CONFLICT(repair_id) DO UPDATE SET assignee=excluded.assignee,actor_id=excluded.actor_id',(repair_id,assignee,g.user['id']))
+                if assignee != (repair['assignee'] or ''):
+                    note = 'ผู้รับผิดชอบ: '+(assignee or 'ยังไม่ได้มอบหมาย')+'\n'+note
                 db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
                            (repair_id, g.user['id'], status, note))
                 mail_ids = queue_repair_mail(db, repair_id, STATUSES[status], 'อัปเดตสถานะการซ่อม')
@@ -290,6 +310,78 @@ def create_app(test_config=None):
     for code, message in [(403, 'คุณไม่มีสิทธิ์ใช้งานหน้านี้'), (404, 'ไม่พบข้อมูลหรือรายการที่คุณเข้าถึงได้'), (413, 'ข้อมูลที่ส่งมีขนาดใหญ่เกินกำหนด')]:
         app.register_error_handler(code, lambda error, c=code, m=message: (render_template('error.html', code=c, message=m), c))
 
+    @app.post('/account/password')
+    @login_required
+    # เปลี่ยนรหัสผ่านโดยตรวจรหัสเดิม และให้อุปกรณ์อื่นเข้าสู่ระบบใหม่
+    def change_password():
+        old = request.form.get('current_password','')
+        new = request.form.get('password','')
+        if len(old)>128 or not check_password_hash(g.user['password_hash'],old):
+            flash('รหัสผ่านเดิมไม่ถูกต้อง','danger')
+        elif not 10 <= len(new) <= 128 or new != request.form.get('confirm_password'):
+            flash('รหัสผ่านใหม่ต้องมี 10–128 ตัวอักษรและยืนยันให้ตรงกัน','danger')
+        elif check_password_hash(g.user['password_hash'],new):
+            flash('กรุณาใช้รหัสผ่านใหม่ที่ต่างจากรหัสเดิม','danger')
+        else:
+            hashed = generate_password_hash(new)
+            db=get_db()
+            db.execute('UPDATE users SET password_hash=? WHERE id=?',(hashed,g.user['id']));db.commit()
+            session.clear();session['user_id']=g.user['id'];session.permanent=True
+            session['password_version']=hashlib.sha256(hashed.encode()).hexdigest()
+            flash('เปลี่ยนรหัสผ่านแล้ว อุปกรณ์อื่นต้องเข้าสู่ระบบใหม่','success')
+        return redirect(url_for('account'))
+
+    @app.post('/repairs/<int:repair_id>/cancel')
+    @login_required
+    # ยกเลิกได้เฉพาะเจ้าของงานที่ยังรอรับเรื่อง เก็บข้อมูลเดิมไว้ครบ
+    def cancel_repair(repair_id):
+        repair=get_repair(repair_id)
+        if g.user['role']!='user' or repair['user_id']!=g.user['id']:abort(403)
+        reason=request.form.get('reason','').strip()
+        if not 3<=len(reason)<=1000:
+            flash('กรุณาระบุเหตุผลการยกเลิก 3–1,000 ตัวอักษร','danger')
+            return redirect(url_for('repair_detail',repair_id=repair_id))
+        db=get_db()
+        with db:
+            # ล็อกแถวงานก่อน เพื่อไม่ให้ยกเลิกพร้อมกับที่ Admin รับงาน
+            if current_db_is_postgres():
+                db.execute('SELECT id FROM repairs WHERE id=? FOR UPDATE',(repair_id,)).fetchone()
+            current=get_repair(repair_id)
+            if current['status']!='pending':
+                flash('ยกเลิกได้เฉพาะรายการที่ยังรอรับเรื่อง','warning')
+                return redirect(url_for('repair_detail',repair_id=repair_id))
+            db.execute('INSERT INTO repair_cancellations(repair_id,actor_id,reason) VALUES(?,?,?)',(repair_id,g.user['id'],reason))
+            db.execute("UPDATE repairs SET updated_at=datetime('now','+7 hours') WHERE id=?",(repair_id,))
+            mail_ids=queue_repair_mail(db,repair_id,STATUSES['cancelled'],'ผู้แจ้งยกเลิกรายการ')
+        if not deliver_pending(db,mail_ids):flash('ยกเลิกแล้ว แต่อีเมลยังรอส่ง','warning')
+        flash('ยกเลิกรายการแล้ว ข้อมูลและประวัติเดิมยังอยู่','success')
+        return redirect(url_for('repair_detail',repair_id=repair_id))
+
+    @app.get('/admin/emails')
+    @admin_required
+    # ดูผลการส่งอีเมล โดยไม่เปิดเผยรหัสผ่าน SMTP
+    def admin_emails():
+        selected=request.args.get('status','')
+        query='SELECT id,recipient,subject,status,attempts FROM email_outbox WHERE 1=1';params=[]
+        if selected in ('pending','sending','sent'):query+=' AND status=?';params.append(selected)
+        rows,pagination=paginate(get_db(),query,params)
+        counts={key:0 for key in ('pending','sending','sent')}
+        for row in get_db().execute('SELECT status,COUNT(*) AS total FROM email_outbox GROUP BY status'):counts[row['status']]=row['total']
+        return render_template('admin_emails.html',emails=rows,pagination=pagination,counts=counts,selected_status=selected)
+
+    @app.post('/admin/emails/<int:email_id>/retry')
+    @admin_required
+    # ส่งใหม่เฉพาะงานรอส่ง ไม่ส่งซ้ำงานที่สำเร็จหรือกำลังส่งอยู่
+    def retry_email(email_id):
+        db=get_db();row=db.execute('SELECT status FROM email_outbox WHERE id=?',(email_id,)).fetchone()
+        if row is None:abort(404)
+        if row['status']!='pending':
+            flash('ส่งใหม่ได้เฉพาะอีเมลที่รอส่ง','warning')
+        else:
+            sent=deliver_pending(db,[email_id])
+            flash('ส่งอีเมลแล้ว' if sent else 'ยังส่งไม่ได้ กรุณาตรวจการตั้งค่า SMTP หรือ Logs','success' if sent else 'warning')
+        return redirect(url_for('admin_emails'))
+
     @app.get('/admin/users')
     @admin_required
     # ผู้ดูแลค้นหาบัญชีทั่วไป ไม่ดึงแฮชรหัสผ่านไปแสดง
@@ -300,8 +392,8 @@ def create_app(test_config=None):
         if q:
             query += ' AND (u.username LIKE ? OR u.name LIKE ? OR p.email LIKE ? OR p.student_id LIKE ?)'
             params = ['%' + q + '%'] * 4
-        rows = get_db().execute(query+' ORDER BY u.id DESC',params).fetchall()
-        return render_template('admin_users.html',users=rows,q=q)
+        rows,pagination = paginate(get_db(),query,params)
+        return render_template('admin_users.html',users=rows,q=q,pagination=pagination)
 
     @app.route('/admin/users/<int:user_id>', methods=['GET','POST'])
     @admin_required
@@ -394,7 +486,7 @@ def create_app(test_config=None):
             uid = db.execute('INSERT INTO users(username,name,password_hash) VALUES(?,?,?)',
                              # แปลงรหัสผ่านเป็นแฮช ไม่เก็บรหัสผ่านจริง
                              ('student_demo', 'นักศึกษาตัวอย่าง', generate_password_hash(password))).lastrowid
-            for i, status in enumerate(STATUSES):
+            for i, status in enumerate(key for key in STATUSES if key != 'cancelled'):
                 rid = db.execute('INSERT INTO repairs(user_id,equipment,room,description,contact,status) VALUES(?,?,?,?,?,?)',
                                  (uid, ['คอมพิวเตอร์ PC-01', 'เครื่องพิมพ์ PR-02', 'จอภาพ MN-03', 'เมาส์ MS-04'][i], 'ห้องคอมพิวเตอร์ 201', 'ข้อมูลสาธิต: อุปกรณ์ทำงานผิดปกติ กรุณาตรวจสอบ', 'ติดต่อเจ้าหน้าที่ห้องคอมพิวเตอร์', status)).lastrowid
                 db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
@@ -448,10 +540,15 @@ def admin_required(view):
 
 # ดึงรายการและกันผู้ใช้ไม่ให้เปิดข้อมูลของคนอื่น
 def get_repair(repair_id):
-    row = get_db().execute('SELECT r.*,u.name AS owner,e.reporter_name,e.student_id,e.id AS evidence_id FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id WHERE r.id=?', (repair_id,)).fetchone()
+    row = get_db().execute('SELECT r.*,u.name AS owner,e.reporter_name,e.student_id,e.id AS evidence_id,c.id AS cancelled_id,a.assignee FROM repairs r JOIN users u ON u.id=r.user_id LEFT JOIN repair_evidence e ON e.repair_id=r.id LEFT JOIN repair_cancellations c ON c.repair_id=r.id LEFT JOIN repair_assignments a ON a.repair_id=r.id WHERE r.id=?', (repair_id,)).fetchone()
     if row is None or (g.user['role'] != 'admin' and row['user_id'] != g.user['id']):
         abort(404)
-    return row
+    return display_repairs([row])[0]
+
+
+def current_db_is_postgres():
+    from flask import current_app
+    return bool(current_app.config.get('DATABASE_URL'))
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 {# รายชื่อบัญชีทั่วไปสำหรับผู้ดูแลเท่านั้น #}
 {% extends 'base.html' %}{% block title %}จัดการผู้ใช้{% endblock %}{% block content %}
-<div class="page-heading"><div><h1>จัดการผู้ใช้</h1><p>พบ {{ users|length }} บัญชีตามเงื่อนไข</p></div></div>
+<div class="page-heading"><div><h1>จัดการผู้ใช้</h1><p>พบ {{ pagination.total }} บัญชีตามเงื่อนไข</p></div></div>
 <section class="surface mb-4"><form method="get"><label for="q" class="form-label">ค้นหาชื่อ ชื่อผู้ใช้ อีเมล หรือรหัสนักศึกษา</label><div class="d-flex gap-2"><input id="q" name="q" value="{{ q }}" maxlength="100" class="form-control"><button class="btn btn-primary">ค้นหา</button></div></form></section>
 <div class="row g-3">{% for user in users %}<div class="col-md-6"><article class="surface h-100"><h2>{{ user.name }}</h2><dl class="detail-list"><dt>ชื่อผู้ใช้</dt><dd>{{ user.username }}</dd><dt>อีเมล</dt><dd>{{ user.email or 'ยังไม่ได้เพิ่มข้อมูล' }}</dd><dt>รหัสนักศึกษา</dt><dd>{{ user.student_id or 'ยังไม่ได้เพิ่มข้อมูล' }}</dd></dl><a class="btn btn-outline-primary w-100 mt-3" href="{{ url_for('admin_user_detail',user_id=user.id) }}">ดูข้อมูลและจัดการรหัสผ่าน</a></article></div>{% else %}<div class="col-12"><section class="surface empty-state"><h2>ไม่พบบัญชีผู้ใช้</h2></section></div>{% endfor %}</div>
-{% endblock %}
+{% include '_pagination.html' %}{% endblock %}

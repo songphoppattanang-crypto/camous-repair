@@ -133,3 +133,6 @@ body,.login-page{background:var(--page-orange);min-height:100vh}
 .support-links a:focus-visible{outline-color:#fff}
 .support-time{font-size:12px;color:#fff;padding-top:4px;flex-shrink:0}
 @media(max-width:767px){.support-footer,.login-page .support-footer{flex-direction:column;align-items:flex-start}.support-links{flex-direction:column;gap:12px}.support-links li{gap:0}.support-time{padding-top:0}}
+
+/* งานที่ผู้แจ้งยกเลิก ใช้สีเทาแยกจากสถานะการซ่อม */
+.status-cancelled{background:#e7e2dd;color:#554b44}

@@ -1,0 +1,2 @@
+{# แบ่งหน้าครั้งละ 10 รายการ เก็บคำค้นและตัวกรองไว้ในลิงก์ #}
+{% if pagination %}<nav class="surface mt-3 d-flex flex-wrap gap-3 align-items-center justify-content-between" aria-label="แบ่งหน้ารายการ"><span>ทั้งหมด {{ pagination.total }} รายการ · หน้า {{ pagination.page }} / {{ pagination.pages }}</span><div class="d-flex gap-2">{% if pagination.previous %}<a class="btn btn-outline-primary" href="{{ pagination.previous }}">ก่อนหน้า</a>{% endif %}{% if pagination.next %}<a class="btn btn-outline-primary" href="{{ pagination.next }}">ถัดไป</a>{% endif %}</div></nav>{% endif %}
