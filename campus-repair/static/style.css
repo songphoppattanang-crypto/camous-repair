@@ -85,3 +85,17 @@
 .login-page .footer{border-color:#ffffff50;color:#fff;padding-top:18px;padding-bottom:18px;justify-content:center}
 .login-page .alert{width:100%;max-width:480px;margin:0 auto 18px}
 @media(max-width:767px){.login-page .main-content{min-height:calc(100svh - 160px);padding-top:24px;padding-bottom:28px}.login-page .auth-card{padding:26px 22px;border-radius:20px}.login-page .footer{align-items:center}}
+
+/* ใช้พื้นหลังสีส้มแบบหน้าเข้าสู่ระบบร่วมกันทุกหน้า */
+:root{--page-orange:linear-gradient(120deg,#A94C30 0%,#C46A39 52%,#E18A45 100%);--paper:#fffaf7}
+body,.login-page{background:var(--page-orange);min-height:100vh}
+.site-header,.login-page .site-header{background:#fff9f5;border-bottom-color:#eed9ce}
+.surface,.repair-card{background:var(--paper)}
+.page-heading,.page-heading h1,.page-heading p,.page-heading .eyebrow{color:#fff}
+.landing-steps-heading h2,.landing-steps-heading p,.landing-steps-heading .eyebrow{color:#fff}
+.footer,.login-page .footer{color:#fff;border-top-color:#ffffff60}
+.stat-card:hover{background:#fff5ee}
+/* ข้อความบนพื้นส้มใช้สีขาว ส่วนข้อความในกล่องยังใช้สีเข้ม */
+.page-heading>.btn{background:#fffaf7}
+.landing-hero{background:#A94C30}
+.landing-hero:before{background:linear-gradient(120deg,rgba(86,34,21,.82),rgba(139,59,29,.74),rgba(139,68,28,.72))}
