@@ -1,0 +1,5 @@
+{# ข้อมูลสมาชิกเพิ่มเติมสำหรับรับการแจ้งเตือน #}
+<label for="email" class="form-label">อีเมล</label><input id="email" type="email" name="email" class="form-control mb-3" required maxlength="254" autocomplete="email" value="{{ request.form.get('email', profile.email if profile else '') }}">
+<label for="title" class="form-label">คำนำหน้า</label><select id="title" name="title" class="form-select mb-3" required><option value="">เลือกคำนำหน้า</option>{% for title in titles %}<option value="{{ title }}" {% if request.form.get('title', profile.title if profile else '') == title %}selected{% endif %}>{{ title }}</option>{% endfor %}</select>
+{% for key,label in [('student_id','รหัสนักศึกษา'),('faculty','คณะ'),('major','สาขา')] %}<label for="{{ key }}" class="form-label">{{ label }}</label><input id="{{ key }}" name="{{ key }}" class="form-control mb-3" maxlength="{{ 18 if key=='student_id' else 100 }}" {% if not g.user or g.user.role=='user' %}required{% endif %} value="{{ request.form.get(key, profile[key] if profile else '') }}">{% endfor %}
+<p class="form-text">ใช้อีเมลนี้รับแจ้งเตือนรายการและสถานะ กรุณาตรวจสอบก่อนบันทึก</p>

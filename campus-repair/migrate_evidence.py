@@ -14,4 +14,4 @@ if __name__ == '__main__':
     os.environ.pop('VERCEL',None)
     with create_app().app_context():
         init_db()
-    print('เพิ่มตารางข้อมูลผู้แจ้งและภาพแล้ว ข้อมูลเดิมยังอยู่ครบ')
+    print('เพิ่มตารางสมาชิก รูปภาพ และอีเมลแล้ว ข้อมูลเดิมยังอยู่ครบ')

@@ -25,6 +25,10 @@ class Cursor:
         self.cursor = cursor
         self.lastrowid = inserted_id
 
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
     def fetchone(self):
         row = self.cursor.fetchone()
         return Record(row) if row is not None else None

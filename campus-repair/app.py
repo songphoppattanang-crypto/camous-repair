@@ -14,6 +14,8 @@ from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.security import check_password_hash, generate_password_hash
 from database import connect_database, INTEGRITY_ERRORS
 from evidence import prepare_photo, MAX_UPLOAD
+from member import profile_fields, TITLES
+from notifications import queue_repair_mail, deliver_pending
 
 STATUSES = {'pending': 'รอรับเรื่อง', 'working': 'กำลังดำเนินการ',
             'done': 'เสร็จสิ้น', 'unrepairable': 'ไม่สามารถซ่อมได้'}
@@ -68,7 +70,7 @@ def create_app(test_config=None):
     @app.context_processor
     # ส่งชื่อสถานะภาษาไทยให้ทุกหน้าใช้ร่วมกัน
     def common():
-        return {'statuses': STATUSES}
+        return {'statuses': STATUSES, 'titles': TITLES}
 
     @app.after_request
     # เพิ่ม header ความปลอดภัยและไม่แคชหน้าของผู้ใช้
@@ -97,6 +99,10 @@ def create_app(test_config=None):
             name = request.form.get('name', '').strip()
             password = request.form.get('password', '')
             error = None
+            try:
+                profile = profile_fields(request.form)
+            except ValueError as exc:
+                error = str(exc)
             if not re.fullmatch(r'[a-z0-9_.-]{3,40}', username):
                 error = 'ชื่อผู้ใช้ต้องเป็นภาษาอังกฤษ ตัวเลข หรือ _ . - จำนวน 3–40 ตัว'
             elif not 2 <= len(name) <= 100:
@@ -110,14 +116,15 @@ def create_app(test_config=None):
             else:
                 try:
                     db = get_db()
-                    db.execute('INSERT INTO users(username,name,password_hash) VALUES(?,?,?)',
-                               # แปลงรหัสผ่านเป็นแฮช ไม่เก็บรหัสผ่านจริง
-                               (username, name, generate_password_hash(password)))
-                    db.commit()
+                    with db:
+                        cur = db.execute('INSERT INTO users(username,name,password_hash) VALUES(?,?,?)',
+                                         (username, name, generate_password_hash(password)))
+                        db.execute('INSERT INTO user_profiles(user_id,email,title,student_id,faculty,major) VALUES(?,?,?,?,?,?)',
+                                   (cur.lastrowid, *profile.values()))
                     flash('สมัครสมาชิกแล้ว กรุณาเข้าสู่ระบบ', 'success')
                     return redirect(url_for('login'))
                 except INTEGRITY_ERRORS:
-                    flash('ชื่อผู้ใช้นี้ถูกใช้งานแล้ว', 'danger')
+                    flash('ชื่อผู้ใช้หรืออีเมลนี้ถูกใช้งานแล้ว', 'danger')
         return render_template('register.html')
 
     @app.route('/login', methods=['GET', 'POST'])
@@ -126,8 +133,8 @@ def create_app(test_config=None):
         if g.user:
             return redirect(url_for('home'))
         if request.method == 'POST':
-            user = get_db().execute('SELECT * FROM users WHERE username=?',
-                                   (request.form.get('username', '').strip().lower(),)).fetchone()
+            user = get_db().execute('SELECT u.* FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE lower(u.username)=? OR lower(p.email)=?',
+                                   (request.form.get('username', '').strip().lower(),) * 2).fetchone()
             password = request.form.get('password', '')
             # เทียบรหัสผ่านที่กรอกกับแฮชของบัญชี
             if len(password) <= 128 and user and check_password_hash(user['password_hash'], password):
@@ -136,7 +143,7 @@ def create_app(test_config=None):
                 session['user_id'] = user['id']
                 session.permanent = True
                 return redirect(url_for('home'))
-            flash('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'danger')
+            flash('ชื่อผู้ใช้ อีเมล หรือรหัสผ่านไม่ถูกต้อง', 'danger')
         return render_template('login.html')
 
     @app.post('/logout')
@@ -194,6 +201,9 @@ def create_app(test_config=None):
                                (cur.lastrowid,reporter_name,student_id,photo))
                     db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
                                (cur.lastrowid, g.user['id'], 'pending', 'สร้างรายการแจ้งซ่อม'))
+                    mail_ids = queue_repair_mail(db, cur.lastrowid, STATUSES['pending'], 'ได้รับรายการแจ้งซ่อมใหม่')
+                if not deliver_pending(db, mail_ids):
+                    flash('บันทึกรายการแล้ว แต่อีเมลแจ้งเตือนยังรอส่ง', 'warning')
                 flash('ส่งรายการแจ้งซ่อมแล้ว', 'success')
                 return redirect(url_for('repair_detail', repair_id=cur.lastrowid))
         return render_template('new_repair.html')
@@ -263,6 +273,9 @@ def create_app(test_config=None):
                 db.execute("UPDATE repairs SET status=?,updated_at=datetime('now','+7 hours') WHERE id=?", (status, repair_id))
                 db.execute('INSERT INTO repair_history(repair_id,actor_id,status,note) VALUES(?,?,?,?)',
                            (repair_id, g.user['id'], status, note))
+                mail_ids = queue_repair_mail(db, repair_id, STATUSES[status], 'อัปเดตสถานะการซ่อม')
+            if not deliver_pending(db, mail_ids):
+                flash('บันทึกสถานะแล้ว แต่อีเมลแจ้งเตือนยังรอส่ง', 'warning')
             flash('บันทึกสถานะและประวัติการซ่อมแล้ว', 'success')
         return redirect(url_for('repair_detail', repair_id=repair_id))
 
@@ -273,6 +286,31 @@ def create_app(test_config=None):
 
     for code, message in [(403, 'คุณไม่มีสิทธิ์ใช้งานหน้านี้'), (404, 'ไม่พบข้อมูลหรือรายการที่คุณเข้าถึงได้'), (413, 'ข้อมูลที่ส่งมีขนาดใหญ่เกินกำหนด')]:
         app.register_error_handler(code, lambda error, c=code, m=message: (render_template('error.html', code=c, message=m), c))
+
+    @app.route('/account', methods=['GET','POST'])
+    @login_required
+    # บัญชีเดิมเพิ่มอีเมลและข้อมูลสมาชิกได้ โดยไม่เปลี่ยนเจ้าของรายการ
+    def account():
+        db = get_db()
+        if request.method == 'POST':
+            try:
+                profile = profile_fields(request.form, student=g.user['role']=='user')
+                db.execute('INSERT INTO user_profiles(user_id,email,title,student_id,faculty,major) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,title=excluded.title,student_id=excluded.student_id,faculty=excluded.faculty,major=excluded.major', (g.user['id'],*profile.values()))
+                db.commit()
+                flash('บันทึกข้อมูลบัญชีแล้ว', 'success')
+                return redirect(url_for('account'))
+            except ValueError as exc:
+                flash(str(exc), 'danger')
+            except INTEGRITY_ERRORS:
+                flash('อีเมลนี้มีบัญชีใช้งานแล้ว', 'danger')
+        profile = db.execute('SELECT * FROM user_profiles WHERE user_id=?',(g.user['id'],)).fetchone()
+        return render_template('account.html', profile=profile)
+
+    @app.cli.command('retry-emails')
+    # ส่งอีเมลที่ยังค้างหลังตั้งค่า SMTP หรือแก้ปัญหาการเชื่อมต่อ
+    def retry_emails():
+        init_db()
+        click.echo('ส่งครบแล้ว' if deliver_pending(get_db()) else 'ยังมีอีเมลรอส่ง ตรวจการตั้งค่า SMTP')
 
     @app.cli.command('init-db')
     # คำสั่งสร้างตารางโดยเก็บข้อมูลเดิมไว้
