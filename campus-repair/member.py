@@ -15,3 +15,7 @@ def profile_fields(form, student=True):
     if any(len(data[key]) > 100 for key in ('student_id','faculty','major')):
         raise ValueError('ข้อมูลยาวเกินกำหนด')
     return data
+
+# ใช้กฎเดียวกันทุกจุดที่สร้างหรือเปลี่ยนรหัสผ่าน
+def valid_password(password):
+    return 8 <= len(password) <= 128 and re.search(r'[A-Z]', password) is not None

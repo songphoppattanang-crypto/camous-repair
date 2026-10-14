@@ -15,7 +15,7 @@ from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.security import check_password_hash, generate_password_hash
 from database import connect_database, INTEGRITY_ERRORS
 from evidence import prepare_photo, MAX_UPLOAD
-from member import profile_fields, TITLES
+from member import profile_fields, TITLES, valid_password
 from notifications import queue_repair_mail, deliver_pending
 from enhancements import paginate, display_repairs
 
@@ -110,8 +110,8 @@ def create_app(test_config=None):
                 error = 'ชื่อผู้ใช้ต้องเป็นภาษาอังกฤษ ตัวเลข หรือ _ . - จำนวน 3–40 ตัว'
             elif not 2 <= len(name) <= 100:
                 error = 'ชื่อผู้แจ้งต้องมี 2–100 ตัวอักษร'
-            elif not 10 <= len(password) <= 128:
-                error = 'รหัสผ่านต้องมี 10–128 ตัวอักษร'
+            elif not valid_password(password):
+                error = 'รหัสผ่านต้องมี 8–128 ตัวอักษร และมีตัวพิมพ์ใหญ่ A–Z อย่างน้อย 1 ตัว'
             elif password != request.form.get('confirm_password'):
                 error = 'ยืนยันรหัสผ่านไม่ตรงกัน'
             if error:
@@ -195,11 +195,13 @@ def create_app(test_config=None):
             except ValueError as exc:
                 error = str(exc)
             limits = {'equipment': (2, 100), 'room': (1, 100),
-                      'description': (10, 2000), 'contact': (5, 200)}
+                      'description': (10, 2000), 'contact': (9, 10)}
+            if not re.fullmatch(r'0[0-9]{8,9}', fields['contact']):
+                error = 'กรุณากรอกเบอร์โทรศัพท์ที่ขึ้นต้นด้วย 0 จำนวน 9–10 หลัก ไม่เว้นวรรคหรือใส่ขีด'
             if error:
                 flash(error, 'danger')
             elif any(not lo <= len(fields[k]) <= hi for k, (lo, hi) in limits.items()):
-                flash('กรอกข้อมูลให้ครบ: อุปกรณ์ 2–100, ห้อง 1–100, อาการ 10–2,000 และข้อมูลติดต่อ 5–200 ตัวอักษร', 'danger')
+                flash('กรอกข้อมูลให้ครบ: อุปกรณ์ 2–100, ห้อง 1–100, อาการ 10–2,000 และเบอร์โทรศัพท์ 9–10 หลัก', 'danger')
             else:
                 db = get_db()
                 # บันทึกเป็นชุดเดียว ถ้าขั้นตอนใดผิดพลาดให้ย้อนกลับ
@@ -318,8 +320,8 @@ def create_app(test_config=None):
         new = request.form.get('password','')
         if len(old)>128 or not check_password_hash(g.user['password_hash'],old):
             flash('รหัสผ่านเดิมไม่ถูกต้อง','danger')
-        elif not 10 <= len(new) <= 128 or new != request.form.get('confirm_password'):
-            flash('รหัสผ่านใหม่ต้องมี 10–128 ตัวอักษรและยืนยันให้ตรงกัน','danger')
+        elif not valid_password(new) or new != request.form.get('confirm_password'):
+            flash('รหัสผ่านใหม่ต้องมี 8–128 ตัวอักษร และมีตัวพิมพ์ใหญ่ A–Z อย่างน้อย 1 ตัวและยืนยันให้ตรงกัน','danger')
         elif check_password_hash(g.user['password_hash'],new):
             flash('กรุณาใช้รหัสผ่านใหม่ที่ต่างจากรหัสเดิม','danger')
         else:
@@ -404,8 +406,8 @@ def create_app(test_config=None):
         if user is None: abort(404)
         if request.method == 'POST':
             password = request.form.get('password','')
-            if not 10 <= len(password) <= 128:
-                flash('รหัสผ่านใหม่ต้องมี 10–128 ตัวอักษร','danger')
+            if not valid_password(password):
+                flash('รหัสผ่านใหม่ต้องมี 8–128 ตัวอักษร และมีตัวพิมพ์ใหญ่ A–Z อย่างน้อย 1 ตัว','danger')
             elif password != request.form.get('confirm_password'):
                 flash('ยืนยันรหัสผ่านไม่ตรงกัน','danger')
             else:
@@ -455,9 +457,9 @@ def create_app(test_config=None):
     def create_admin(username, name):
         """สร้าง admin: รับรหัสผ่านแบบซ่อน หรือ ADMIN_PASSWORD."""
         username = username.strip().lower()
-        password = os.environ.get('ADMIN_PASSWORD') or click.prompt('Password (10-128 characters)', hide_input=True, confirmation_prompt=True)
-        if not re.fullmatch(r'[a-z0-9_.-]{3,40}', username) or not 2 <= len(name.strip()) <= 100 or not 10 <= len(password) <= 128:
-            raise click.ClickException('ข้อมูลไม่ถูกต้อง: username 3–40, name 2–100, password 10–128')
+        password = os.environ.get('ADMIN_PASSWORD') or click.prompt('Password (8-128 characters, at least one uppercase A-Z)', hide_input=True, confirmation_prompt=True)
+        if not re.fullmatch(r'[a-z0-9_.-]{3,40}', username) or not 2 <= len(name.strip()) <= 100 or not valid_password(password):
+            raise click.ClickException('ข้อมูลไม่ถูกต้อง: username 3–40, name 2–100, password 8–128 และมี A–Z อย่างน้อย 1 ตัว')
         init_db()
         db = get_db()
         try:
@@ -474,9 +476,9 @@ def create_app(test_config=None):
     # เพิ่มบัญชีและรายการตัวอย่างสำหรับลองระบบ
     def seed_demo():
         """สร้างนักศึกษาตัวอย่างและรายการ 4 สถานะ ครั้งเดียว."""
-        password = os.environ.get('DEMO_PASSWORD') or click.prompt('Demo password (10-128 characters)', hide_input=True, confirmation_prompt=True)
-        if not 10 <= len(password) <= 128:
-            raise click.ClickException('รหัสผ่านต้องมี 10–128 ตัวอักษร')
+        password = os.environ.get('DEMO_PASSWORD') or click.prompt('Demo password (8-128 characters, at least one uppercase A-Z)', hide_input=True, confirmation_prompt=True)
+        if not valid_password(password):
+            raise click.ClickException('รหัสผ่านต้องมี 8–128 ตัวอักษร และมีตัวพิมพ์ใหญ่ A–Z อย่างน้อย 1 ตัว')
         init_db()
         db = get_db()
         if db.execute("SELECT id FROM users WHERE username='student_demo'").fetchone():

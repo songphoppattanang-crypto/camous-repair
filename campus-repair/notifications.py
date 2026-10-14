@@ -34,7 +34,7 @@ def queue_repair_mail(db, repair_id, status_label, event):
         f'คณะ: {row["faculty"] or "ไม่ได้ระบุ"}',
         f'สาขา: {row["major"] or "ไม่ได้ระบุ"}',
         f'อีเมล: {row["email"] or "ไม่ได้ระบุ"}',
-        f'ข้อมูลติดต่อ: {row["contact"]}',
+        f'เบอร์โทรศัพท์: {row["contact"]}',
         '', 'รายละเอียดการแจ้งซ่อม',
         f'อุปกรณ์: {row["equipment"]}',
         f'สถานที่: {row["room"]}',
