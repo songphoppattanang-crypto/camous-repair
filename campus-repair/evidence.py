@@ -5,7 +5,7 @@ from pathlib import Path
 import warnings
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-MAX_UPLOAD = 3 * 1024 * 1024
+MAX_UPLOAD = 10 * 1024 * 1024
 MAX_STORED = 500 * 1024
 
 
@@ -20,7 +20,7 @@ def prepare_photo(upload):
     # อ่านเกินเพดานมา 1 ไบต์ เพื่อจับไฟล์ที่ใหญ่เกินกำหนด
     data = upload.stream.read(MAX_UPLOAD + 1)
     if not data or len(data) > MAX_UPLOAD:
-        raise ValueError('รูปภาพต้องมีขนาดไม่เกิน 3 MB')
+        raise ValueError('รูปภาพต้องมีขนาดไม่เกิน 10 MB')
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('error', Image.DecompressionBombWarning)
