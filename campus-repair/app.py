@@ -169,22 +169,22 @@ def create_app(test_config=None):
     def new_repair():
         if g.user['role'] != 'user':
             abort(403)
+        # ใช้ตัวตนจากบัญชีที่ล็อกอิน ไม่รับชื่อหรือรหัสนักศึกษาจากฟอร์ม
+        profile = get_db().execute('SELECT student_id FROM user_profiles WHERE user_id=?', (g.user['id'],)).fetchone()
+        if profile is None or not re.fullmatch(r'[0-9]{8,15}(?:-[0-9]{1,2})?', profile['student_id']):
+            flash('กรุณาเพิ่มรหัสนักศึกษาในข้อมูลบัญชีก่อนแจ้งซ่อม', 'warning')
+            return redirect(url_for('account'))
         if request.method == 'POST':
             fields = {k: request.form.get(k, '').strip() for k in
                       ('equipment', 'room', 'description', 'contact')}
-            reporter_name = request.form.get('reporter_name', '').strip()
-            student_id = request.form.get('student_id', '').strip()
+            reporter_name = g.user['name'].strip()
+            student_id = profile['student_id']
             photo = None
             error = None
-            if not 3 <= len(reporter_name) <= 100 or len(reporter_name.split()) < 2:
-                error = 'กรุณากรอกชื่อและนามสกุล คั่นด้วยช่องว่าง ไม่เกิน 100 ตัวอักษร'
-            elif not re.fullmatch(r'[0-9]{8,15}(?:-[0-9]{1,2})?', student_id):
-                error = 'รหัสนักศึกษาต้องเป็นตัวเลข 8–15 หลัก และอาจมีเลขท้ายหลังเครื่องหมาย -'
-            else:
-                try:
-                    photo = prepare_photo(request.files.get('photo'))
-                except ValueError as exc:
-                    error = str(exc)
+            try:
+                photo = prepare_photo(request.files.get('photo'))
+            except ValueError as exc:
+                error = str(exc)
             limits = {'equipment': (2, 100), 'room': (1, 100),
                       'description': (10, 2000), 'contact': (5, 200)}
             if error:
