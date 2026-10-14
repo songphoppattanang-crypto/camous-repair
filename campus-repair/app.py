@@ -3,6 +3,7 @@
 import os
 import re
 import secrets
+import hashlib
 from io import BytesIO
 from datetime import timedelta
 from functools import wraps
@@ -63,7 +64,8 @@ def create_app(test_config=None):
         if session.get('user_id'):
             g.user = get_db().execute('SELECT * FROM users WHERE id=?',
                                      (session['user_id'],)).fetchone()
-            if g.user is None:
+            if g.user is None or session.get('password_version') != hashlib.sha256(g.user['password_hash'].encode()).hexdigest():
+                g.user = None
                 # ล้างข้อมูลการล็อกอินเดิม
                 session.clear()
 
@@ -141,6 +143,7 @@ def create_app(test_config=None):
                 # ล้างข้อมูลการล็อกอินเดิม
                 session.clear()
                 session['user_id'] = user['id']
+                session['password_version'] = hashlib.sha256(user['password_hash'].encode()).hexdigest()
                 session.permanent = True
                 return redirect(url_for('home'))
             flash('ชื่อผู้ใช้ อีเมล หรือรหัสผ่านไม่ถูกต้อง', 'danger')
@@ -286,6 +289,40 @@ def create_app(test_config=None):
 
     for code, message in [(403, 'คุณไม่มีสิทธิ์ใช้งานหน้านี้'), (404, 'ไม่พบข้อมูลหรือรายการที่คุณเข้าถึงได้'), (413, 'ข้อมูลที่ส่งมีขนาดใหญ่เกินกำหนด')]:
         app.register_error_handler(code, lambda error, c=code, m=message: (render_template('error.html', code=c, message=m), c))
+
+    @app.get('/admin/users')
+    @admin_required
+    # ผู้ดูแลค้นหาบัญชีทั่วไป ไม่ดึงแฮชรหัสผ่านไปแสดง
+    def admin_users():
+        q = request.args.get('q', '').strip()[:100]
+        query = "SELECT u.id,u.username,u.name,u.created_at,p.email,p.title,p.student_id,p.faculty,p.major FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.role='user'"
+        params = []
+        if q:
+            query += ' AND (u.username LIKE ? OR u.name LIKE ? OR p.email LIKE ? OR p.student_id LIKE ?)'
+            params = ['%' + q + '%'] * 4
+        rows = get_db().execute(query+' ORDER BY u.id DESC',params).fetchall()
+        return render_template('admin_users.html',users=rows,q=q)
+
+    @app.route('/admin/users/<int:user_id>', methods=['GET','POST'])
+    @admin_required
+    # เปิดข้อมูลผู้ใช้ และตั้งรหัสผ่านใหม่โดยเก็บเฉพาะแฮช
+    def admin_user_detail(user_id):
+        db = get_db()
+        user = db.execute("SELECT u.id,u.username,u.name,u.created_at,p.email,p.title,p.student_id,p.faculty,p.major FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=? AND u.role='user'",(user_id,)).fetchone()
+        if user is None: abort(404)
+        if request.method == 'POST':
+            password = request.form.get('password','')
+            if not 10 <= len(password) <= 128:
+                flash('รหัสผ่านใหม่ต้องมี 10–128 ตัวอักษร','danger')
+            elif password != request.form.get('confirm_password'):
+                flash('ยืนยันรหัสผ่านไม่ตรงกัน','danger')
+            else:
+                db.execute("UPDATE users SET password_hash=? WHERE id=? AND role='user'",(generate_password_hash(password),user_id))
+                db.commit()
+                flash('ตั้งรหัสผ่านใหม่แล้ว ผู้ใช้ต้องเข้าสู่ระบบอีกครั้ง','success')
+                return redirect(url_for('admin_user_detail',user_id=user_id))
+        total = db.execute('SELECT COUNT(*) AS total FROM repairs WHERE user_id=?',(user_id,)).fetchone()['total']
+        return render_template('admin_user_detail.html',user=user,total=total)
 
     @app.route('/account', methods=['GET','POST'])
     @login_required
