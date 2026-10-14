@@ -17,14 +17,18 @@
       input.reportValidity();
     }
   });
-  // โหลดภาพด้วย URL ชั่วคราว แล้วคืนหน่วยความจำเมื่อใช้งานเสร็จ
+  // อ่านเป็น data URL ซึ่งนโยบายความปลอดภัยของเว็บอนุญาต
   function loadImage(file) {
     return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const image = new Image();
-      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
-      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('อ่านภาพไม่ได้ กรุณาเลือก JPG, PNG หรือ WebP ที่สมบูรณ์')); };
-      image.src = url;
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('อ่านไฟล์ไม่ได้ กรุณาเลือกภาพใหม่'));
+      reader.onload = () => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('อ่านภาพไม่ได้ กรุณาเลือก JPG, PNG หรือ WebP ที่สมบูรณ์'));
+        image.src = reader.result;
+      };
+      reader.readAsDataURL(file);
     });
   }
   form.addEventListener('submit', async (event) => {

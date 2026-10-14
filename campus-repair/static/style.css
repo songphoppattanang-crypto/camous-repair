@@ -114,3 +114,7 @@ body,.login-page{background:var(--page-orange);min-height:100vh}
 @media(min-width:768px){.table-panel:has(.repair-cards){background:var(--panel-peach)}}
 .evidence-photo{background:#F4CCAA}
 .hero-photo,.hero-photo figcaption{background:var(--panel-peach)}
+
+/* ปุ่มหลักในหัวหน้า: ใช้พื้นเข้มกับตัวอักษรขาว ไม่ให้กฎพื้นพีชทับ */
+.page-heading>.btn-primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.page-heading>.btn-primary:hover,.page-heading>.btn-primary:focus-visible,.page-heading>.btn-primary:active{background:var(--brand-hover);border-color:var(--brand-hover);color:#fff}
