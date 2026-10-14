@@ -118,3 +118,18 @@ body,.login-page{background:var(--page-orange);min-height:100vh}
 /* ปุ่มหลักในหัวหน้า: ใช้พื้นเข้มกับตัวอักษรขาว ไม่ให้กฎพื้นพีชทับ */
 .page-heading>.btn-primary{background:var(--brand);border-color:var(--brand);color:#fff}
 .page-heading>.btn-primary:hover,.page-heading>.btn-primary:focus-visible,.page-heading>.btn-primary:active{background:var(--brand-hover);border-color:var(--brand-hover);color:#fff}
+
+/* ช่องทางช่วยเหลือท้ายเว็บ แสดงได้แม้ยังไม่เข้าสู่ระบบ */
+.support-footer,.login-page .support-footer{justify-content:space-between;align-items:flex-start;gap:24px;font-size:14px;padding-top:28px;padding-bottom:28px}
+.support-footer section{max-width:760px;min-width:0}
+.support-footer h2{font-size:20px;color:#fff;margin-bottom:8px}
+.support-footer p{font-size:14px;color:#fff;margin-bottom:16px}
+.support-links{display:flex;flex-wrap:wrap;gap:12px 28px;list-style:none;padding:0;margin:0}
+.support-links li{display:flex;flex-direction:column;gap:4px}
+.support-links li>span{font-size:12px;color:#fff}
+.support-footer .support-links strong{color:#fff;font-size:15px}
+.support-links a{display:inline-flex;align-items:center;min-height:44px;color:#fff;font-size:15px;font-weight:600;text-decoration:underline;text-underline-offset:4px;padding:4px 0}
+.support-links a:hover{color:#fff;text-decoration-thickness:2px}
+.support-links a:focus-visible{outline-color:#fff}
+.support-time{font-size:12px;color:#fff;padding-top:4px;flex-shrink:0}
+@media(max-width:767px){.support-footer,.login-page .support-footer{flex-direction:column;align-items:flex-start}.support-links{flex-direction:column;gap:12px}.support-links li{gap:0}.support-time{padding-top:0}}
