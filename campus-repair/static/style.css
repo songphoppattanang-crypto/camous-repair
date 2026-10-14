@@ -99,3 +99,18 @@ body,.login-page{background:var(--page-orange);min-height:100vh}
 .page-heading>.btn{background:#fffaf7}
 .landing-hero{background:#A94C30}
 .landing-hero:before{background:linear-gradient(120deg,rgba(86,34,21,.82),rgba(139,59,29,.74),rgba(139,68,28,.72))}
+
+/* พีชและครีมอมส้ม: แทนพื้นขาว โดยยังแยกช่องกรอกจากกล่องข้อมูล */
+:root{--paper:#FBE0C7;--border:#E3B796;--muted:#665044;--panel-peach:#FBE0C7;--input-cream:#FFF0DD}
+.site-header,.login-page .site-header{background:#F4CCAA;border-bottom-color:#DFAD86}
+.surface,.repair-card,.login-page .auth-card{background:var(--panel-peach);border-color:var(--border)}
+.form-control,.form-select{background-color:var(--input-cream);border-color:#C99A76;color:var(--ink)}
+.form-control:focus,.form-select:focus{background-color:#FFF4E6;color:var(--ink)}
+.btn-outline-primary,.btn-outline-secondary,.page-heading>.btn{background:#FFE9D1}
+.btn-outline-primary:hover,.btn-outline-secondary:hover{background:#F5D1B1}
+.stat-card:hover{background:#F7D5B8}
+.table th{background:#F2CBAA}
+.table tbody tr:hover{background:#F7D5B8}
+@media(min-width:768px){.table-panel:has(.repair-cards){background:var(--panel-peach)}}
+.evidence-photo{background:#F4CCAA}
+.hero-photo,.hero-photo figcaption{background:var(--panel-peach)}
