@@ -18,6 +18,7 @@ from evidence import prepare_photo, MAX_UPLOAD
 from member import profile_fields, TITLES, valid_password
 from notifications import queue_repair_mail, deliver_pending
 from enhancements import paginate, display_repairs
+from dashboard_stats import dashboard_data, date_filter
 
 STATUSES = {'pending': 'รอรับเรื่อง', 'working': 'กำลังดำเนินการ',
             'done': 'เสร็จสิ้น', 'unrepairable': 'ไม่สามารถซ่อมได้', 'cancelled': 'ยกเลิกแล้ว'}
@@ -249,10 +250,7 @@ def create_app(test_config=None):
     @admin_required
     # นับรายการแต่ละสถานะเพื่อแสดงบนแดชบอร์ด
     def admin_dashboard():
-        counts = {s: 0 for s in STATUSES}
-        for row in get_db().execute("SELECT CASE WHEN c.id IS NOT NULL THEN 'cancelled' ELSE r.status END AS status,COUNT(*) AS total FROM repairs r LEFT JOIN repair_cancellations c ON c.repair_id=r.id GROUP BY CASE WHEN c.id IS NOT NULL THEN 'cancelled' ELSE r.status END"):
-            counts[row['status']] = row['total']
-        return render_template('dashboard.html', counts=counts)
+        return render_template('dashboard.html', **dashboard_data(get_db(),STATUSES))
 
     @app.get('/admin/repairs')
     @admin_required
@@ -268,6 +266,10 @@ def create_app(test_config=None):
         if status in STATUSES:
             sql += " AND (CASE WHEN c.id IS NOT NULL THEN 'cancelled' ELSE r.status END)=?"
             params.append(status)
+        if request.args.get('date'):
+            anchor,period,start,end=date_filter()
+            sql += ' AND r.created_at>=? AND r.created_at<?'
+            params.extend([start.isoformat(),end.isoformat()])
         rows,pagination = paginate(get_db(),sql,params)
         return render_template('admin_repairs.html', repairs=display_repairs(rows), q=q, selected_status=status,pagination=pagination)
 
